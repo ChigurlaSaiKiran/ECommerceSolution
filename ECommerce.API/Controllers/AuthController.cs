@@ -1,20 +1,14 @@
-﻿using ECommerce.Application.Services;
+﻿using ECommerce.Application.DTOs;
 using ECommerce.Domain.Entities;
 using ECommerce.Infrastructure.Data;
-using Microsoft.AspNetCore.Authorization;
+using ECommerce.Application.Services;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.IdentityModel.Tokens;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
-
 
 namespace ECommerce.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    
     public class AuthController : ControllerBase
     {
         private readonly AppDbContext _context;
@@ -26,21 +20,107 @@ namespace ECommerce.API.Controllers
             _jwtService = jwtService;
         }
 
+        // -------------------- CUSTOMER REGISTER --------------------
+        [HttpPost("register")]
+        public async Task<IActionResult> Register([FromBody] RegisterDto dto)
+        {
+            if (await _context.Customers.AnyAsync(c => c.Email == dto.Email))
+                return BadRequest("Email already exists");
+
+            var customer = new Customer
+            {
+                FullName = dto.FullName,
+                Email = dto.Email,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password),
+                Role = "Customer"
+            };
+
+            _context.Customers.Add(customer);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Registration successful" });
+        }
+
+        // -------------------- LOGIN (Customer or Admin) --------------------
         [HttpPost("login")]
         public IActionResult Login([FromBody] LoginRequest request)
         {
-            var user = _context.Users.SingleOrDefault(x => x.Email == request.Email);
-            if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+            // 1. Try Customer
+            var customer = _context.Customers.SingleOrDefault(x => x.Email == request.Email);
+            if (customer != null && BCrypt.Net.BCrypt.Verify(request.Password, customer.PasswordHash))
             {
-                return Unauthorized("Invalid credentials");
+                var token = _jwtService.GenerateToken(customer);
+                return Ok(new
+                {
+                    token,
+                    customer.Email,
+                    customer.FullName,
+                    customer.Role
+                });
             }
 
-            var token = _jwtService.GenerateToken(user);
-            return Ok(new { token, user.Email, user.FullName, user.Role });
-        }
+            // 2. Try Admin User
+            var user = _context.Users.SingleOrDefault(x => x.Email == request.Email);
+            if (user != null && BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+            {
+                var token = _jwtService.GenerateToken(user);
+                return Ok(new
+                {
+                    token,
+                    user.Email,
+                    user.FullName,
+                    user.Role
+                });
+            }
 
+            return Unauthorized("Invalid credentials");
+        }
     }
 }
+
+//using ECommerce.Application.Services;
+//using ECommerce.Domain.Entities;
+//using ECommerce.Infrastructure.Data;
+//using Microsoft.AspNetCore.Authorization;
+//using Microsoft.AspNetCore.Mvc;
+//using Microsoft.EntityFrameworkCore;
+//using Microsoft.IdentityModel.Tokens;
+//using System.IdentityModel.Tokens.Jwt;
+//using System.Security.Claims;
+//using System.Text;
+
+
+//namespace ECommerce.API.Controllers
+//{
+//    [Route("api/[controller]")]
+//    [ApiController]
+
+//    public class AuthController : ControllerBase
+//    {
+//        private readonly AppDbContext _context;
+//        private readonly JwtService _jwtService;
+
+//        public AuthController(AppDbContext context, JwtService jwtService)
+//        {
+//            _context = context;
+//            _jwtService = jwtService;
+//        }
+
+//        [HttpPost("login")]
+//        public IActionResult Login([FromBody] LoginRequest request)
+//        {
+//            var user = _context.Users.SingleOrDefault(x => x.Email == request.Email);
+//            if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+//            {
+//                return Unauthorized("Invalid credentials");
+//            }
+
+//            var token = _jwtService.GenerateToken(user);
+//            return Ok(new { token, user.Email, user.FullName, user.Role });
+//        }
+
+//    }
+//}
 
 
 
